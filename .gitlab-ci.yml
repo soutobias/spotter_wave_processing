@@ -1,0 +1,37 @@
+include:
+  - project: oceanids/c2/infrastructure/ci-scripts
+    ref: master
+    file: variables.yml
+  - project: oceanids/c2/infrastructure/ci-scripts
+    ref: master
+    file: python-microservice/lint.yml
+  - project: oceanids/c2/infrastructure/ci-scripts
+    ref: master
+    file: python-microservice/build.yml
+  - project: oceanids/c2/infrastructure/ci-scripts
+    ref: master
+    file: release.yml
+
+stages:
+  - build
+  - lint
+  - test
+  - tag
+  - release
+
+test:
+  stage: test
+  script:
+    - DOCKER_BUILD_IMAGE=$(eval echo ${DOCKER_BUILD_IMAGE})
+    - docker pull $DOCKER_BUILD_IMAGE
+    - docker run -- $DOCKER_BUILD_IMAGE tests
+  tags:
+    - shell
+  rules:
+    - if: '$CI_SKIP_TESTS == "1"'
+      when: never
+    - if: '$CI_IGNORE_TESTS == "1"'
+      allow_failure: true
+    - when: on_success
+
+

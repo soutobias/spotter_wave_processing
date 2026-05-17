@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spotter_wave_process"
+description = "A Python package for accessing Met Office data, process and upload to GeoServer"
+requires-python = ">=3.10"
+keywords = ["data", "mars", "noc"]
+authors = [{email = "tobias.ferreira@noc.ac.uk"},{name = "Tobias Ferreira"}]
+maintainers = [{name = "Tobias Ferreira", email = "tobias.ferreira@noc.ac.uk"}]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Intended Audience :: Science/Research"
+]
+dependencies = [
+  "numpy>=2.0.1",
+  "pandas>=2.2.2",
+  "xarray[complete]>=2024.6.0",
+  "requests>=2.0.0",
+  "zarr>=2.18.2",
+  "python-dotenv>=1.0.1",
+  "pysofar>=0.1.16",
+  "boto3",
+  "cartopy",
+  "matplotlib",
+  "pytz",
+  "scipy",
+  "aiohttp",
+  "tqdm",
+]
+
+dynamic = ["version"]
+
+[project.readme]
+file = "README.md"
+content-type = "text/markdown"
+
+[tool.setuptools.dynamic]
+version = {attr = "spotter_wave_process.__init__.__version__"}
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "C90"]
+ignore = ["E501"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["*"]
+exclude = ["*__pycache__*", "*.sh"]
+namespaces = true
+
+[project.optional-dependencies]
+test = ["pytest >= 8.0.0"]
+
+[project.scripts]
+spotter_wave_process = "spotter_wave_process.cli.main:c2_mettofice"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

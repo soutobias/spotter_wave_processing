@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  spotter_wave_process:
+    build: .
+    volumes:
+      - ./data:/data
+    env_file:
+      - ../.env
+    entrypoint: ["/app/entrypoint.sh"]
+    command: ["--help"]
