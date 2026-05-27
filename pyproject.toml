@@ -21,7 +21,7 @@ dependencies = [
   "zarr>=2.18.2",
   "python-dotenv>=1.0.1",
   "pysofar>=0.1.16",
-  "boto3",
+  # "boto3",
   "cartopy",
   "matplotlib",
   "pytz",

@@ -16,10 +16,10 @@ MISSING = 9
 
 @dataclass
 class SpotterQCConfig:
-    lat_min: float = -67.5
-    lat_max: float = -50.5
-    lon_min: float = -75.5
-    lon_max: float = -30.5
+    lat_min: float = -90.0
+    lat_max: float = 90.0
+    lon_min: float = -180.0
+    lon_max: float = 180.0
 
     swh_suspect_min: float = 0.0
     swh_suspect_max: float = 15.0

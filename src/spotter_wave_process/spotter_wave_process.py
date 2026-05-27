@@ -17,9 +17,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 import os
 from spotter_wave_process.qc import SpotterQARTODQC
+from pathlib import Path
+
 
 SPOTTER_URL = "https://paidiver-o.s3-ext.jc.rl.ac.uk/waves/spotter_brazil.zarr"
-ERA5_URL = "https://paidiver-o.s3-ext.jc.rl.ac.uk/waves/era1/waves.zarr"
+ERA5_URL = "https://paidiver-o.s3-ext.jc.rl.ac.uk/waves/era3/waves.zarr"
 GFS_URL = "https://erddap.aoml.noaa.gov/hdb/erddap/griddap/WaveWatch_"
 
 class SpotterProcess:
@@ -28,7 +30,7 @@ class SpotterProcess:
         self,
         output_path: str = "data",
         n_workers: int = 16,
-        lons: list = [-180, 360],
+        lons: list = [-180, 180],
         lats: list = [-67.5, -50.5],
         start_date: str = "2021-12-01",
         end_date: str = "2021-12-10",
@@ -306,6 +308,8 @@ class SpotterProcess:
 
         except Exception as e:
             print(f"Error interpolating Spotter {spotter_id}: {e}")
+            print(curr_data[["time", "latitude", "longitude"]].head())
+            print(curr_data[["time", "latitude", "longitude"]].tail())
             return None
 
 
@@ -327,6 +331,14 @@ class SpotterProcess:
         spotter_df = pd.concat(new_df_list).sort_values(by="time", ignore_index=True)
         spotter_df["timestamp"] = pd.to_datetime(spotter_df["time"], utc=True)
 
+        print("AFTER INTERPOLATION")
+        print("lon min/max:", spotter_df.longitude.min(), spotter_df.longitude.max())
+        print("lat min/max:", spotter_df.latitude.min(), spotter_df.latitude.max())
+        print("n rows:", len(spotter_df))
+        print("n spotters:", spotter_df.spotter_id.nunique())
+
+
+        
         return spotter_df
 
     def download_spotter_data(self):
@@ -372,6 +384,15 @@ class SpotterProcess:
                 (curr_df["longitude"].between(self.lons[0], self.lons[1])) &
                 (curr_df["latitude"].between(self.lats[0], self.lats[1]))
             ]
+            if len(curr_df) <= 1 and len(curr_df) > 0:
+                print(
+                    "Dropped sparse spotter:",
+                    spotter_id_str,
+                    "n=", len(curr_df),
+                    "lon=", curr_df.longitude.min(), curr_df.longitude.max(),
+                    "lat=", curr_df.latitude.min(), curr_df.latitude.max(),
+                )
+            
             if len(curr_df) > 1:
                 return (spotter_id_str, curr_df)
             else:
@@ -405,6 +426,18 @@ class SpotterProcess:
                 if result_df is not None:
                     spotter_df_dict[spotter_id] = result_df
 
+
+        raw_filtered = pd.concat(
+            [df.assign(spotter_id=spotter_id) for spotter_id, df in spotter_df_dict.items()],
+            ignore_index=True,
+        )
+        
+        print("RAW FILTERED AFTER process_spotter")
+        print("lon min/max:", raw_filtered.longitude.min(), raw_filtered.longitude.max())
+        print("lat min/max:", raw_filtered.latitude.min(), raw_filtered.latitude.max())
+        print("n rows:", len(raw_filtered))
+        print("n spotters:", raw_filtered.spotter_id.nunique())
+        
         return spotter_df_dict
 
     def plot_bias(self):
@@ -460,14 +493,14 @@ class SpotterProcess:
                 plt.close(fig)
 
                 print(f"Saved bias timeseries to {output_file}")
-
-    def plot_map(self, model_names=None, model_vars=None):
+    
+    def plot_map(self, model_names=None, model_vars=None, overwrite=False):
         unique_times = pd.to_datetime(
             self.spotter_df["timestamp"].unique(),
             utc=True,
         )
         unique_times = np.sort(unique_times)
-
+    
         if not model_names:
             model_names = self.model_sources
         if not model_vars:
@@ -476,22 +509,41 @@ class SpotterProcess:
                 variable_map = self.model_variable_map.get(model_name, {})
                 model_vars.update(variable_map.values())
             model_vars = list(model_vars)
-
+    
+        output_path = Path(self.output_path)
+        output_path.mkdir(parents=True, exist_ok=True)
+    
         for model_name, model_ds in self.model_dss.items():
             if model_name not in model_names:
                 continue
+    
             variable_map = self.model_variable_map[model_name]
-
+    
             for _, model_var in variable_map.items():
                 if model_var not in model_vars:
                     continue
+    
                 desc = f"Generating maps for {model_name.upper()} {model_var}"
+    
                 min_cmap = self.bias_by_hour[model_name][model_var]["bias"].min()
                 max_cmap = self.bias_by_hour[model_name][model_var]["bias"].max()
                 min_model_cmap = self.bias_by_hour[model_name][model_var]["model_value"].min()
                 max_model_cmap = self.bias_by_hour[model_name][model_var]["model_value"].max()
-
+    
+                saved_count = 0
+                skipped_count = 0
+    
                 for curr_time in tqdm(unique_times, total=len(unique_times), desc=desc):
+                    output_file = (
+                        output_path
+                        / f"2d_errors_{model_name}_{model_var}_"
+                        f"{curr_time.strftime('%Y%m%d%H')}.png"
+                    )
+    
+                    if output_file.exists() and not overwrite:
+                        skipped_count += 1
+                        continue
+    
                     fig, _ = self.plot_single_frame(
                         curr_time=curr_time,
                         model_name=model_name,
@@ -499,29 +551,20 @@ class SpotterProcess:
                         cmap_limits=(min_cmap, max_cmap),
                         model_cmap_limits=(min_model_cmap, max_model_cmap),
                     )
-
-                    output_file = (
-                        f"{self.output_path}/2d_errors_"
-                        f"{model_name}_{model_var}_"
-                        f"{curr_time.strftime('%Y%m%d%H')}.png"
-                    )
-                    # fig.savefig(
-                    #     output_file,
-                    #     dpi=150,
-                    #     bbox_inches="tight",
-                    #     pad_inches=0.2,
-                    # )
-
+    
                     fig.savefig(output_file)
                     plt.close(fig)
                     fig.clf()
                     gc.collect()
-
+    
+                    saved_count += 1
+    
                 print(
-                    f"Saved {len(unique_times)} images to {self.output_path} "
-                    f"for {model_name.upper()} variable {model_var}."
+                    f"Saved {saved_count} new images to {self.output_path} "
+                    f"for {model_name.upper()} variable {model_var}. "
+                    f"Skipped {skipped_count} existing images."
                 )
-
+    
     def plot_single_frame(self, curr_time, model_name, model_var, cmap_limits, model_cmap_limits):
         curr_time = pd.Timestamp(curr_time).tz_convert("UTC")
 
