@@ -18,6 +18,7 @@ from tqdm import tqdm
 import os
 from spotter_wave_process.qc import SpotterQARTODQC
 from pathlib import Path
+import plotly.graph_objects as go
 
 
 SPOTTER_URL = "https://paidiver-o.s3-ext.jc.rl.ac.uk/waves/spotter_brazil.zarr"
@@ -76,7 +77,7 @@ class SpotterProcess:
         self.bias_by_hour = self.calculate_bias_by_hour()
 
     def qc_spotter_data(self, spotter_df):
-        qc = SpotterQARTODQC(self.spotter_df)
+        qc = SpotterQARTODQC(spotter_df)
         return qc.run_all(model_comparison_can_fail=True, remove_failed_after=True)
 
     def download_model_data(self):
@@ -338,7 +339,7 @@ class SpotterProcess:
         print("n spotters:", spotter_df.spotter_id.nunique())
 
 
-        
+
         return spotter_df
 
     def download_spotter_data(self):
@@ -392,7 +393,7 @@ class SpotterProcess:
                     "lon=", curr_df.longitude.min(), curr_df.longitude.max(),
                     "lat=", curr_df.latitude.min(), curr_df.latitude.max(),
                 )
-            
+
             if len(curr_df) > 1:
                 return (spotter_id_str, curr_df)
             else:
@@ -431,13 +432,13 @@ class SpotterProcess:
             [df.assign(spotter_id=spotter_id) for spotter_id, df in spotter_df_dict.items()],
             ignore_index=True,
         )
-        
+
         print("RAW FILTERED AFTER process_spotter")
         print("lon min/max:", raw_filtered.longitude.min(), raw_filtered.longitude.max())
         print("lat min/max:", raw_filtered.latitude.min(), raw_filtered.latitude.max())
         print("n rows:", len(raw_filtered))
         print("n spotters:", raw_filtered.spotter_id.nunique())
-        
+
         return spotter_df_dict
 
     def plot_bias(self):
@@ -493,14 +494,14 @@ class SpotterProcess:
                 plt.close(fig)
 
                 print(f"Saved bias timeseries to {output_file}")
-    
+
     def plot_map(self, model_names=None, model_vars=None, overwrite=False):
         unique_times = pd.to_datetime(
             self.spotter_df["timestamp"].unique(),
             utc=True,
         )
         unique_times = np.sort(unique_times)
-    
+
         if not model_names:
             model_names = self.model_sources
         if not model_vars:
@@ -509,41 +510,41 @@ class SpotterProcess:
                 variable_map = self.model_variable_map.get(model_name, {})
                 model_vars.update(variable_map.values())
             model_vars = list(model_vars)
-    
+
         output_path = Path(self.output_path)
         output_path.mkdir(parents=True, exist_ok=True)
-    
+
         for model_name, model_ds in self.model_dss.items():
             if model_name not in model_names:
                 continue
-    
+
             variable_map = self.model_variable_map[model_name]
-    
+
             for _, model_var in variable_map.items():
                 if model_var not in model_vars:
                     continue
-    
+
                 desc = f"Generating maps for {model_name.upper()} {model_var}"
-    
+
                 min_cmap = self.bias_by_hour[model_name][model_var]["bias"].min()
                 max_cmap = self.bias_by_hour[model_name][model_var]["bias"].max()
                 min_model_cmap = self.bias_by_hour[model_name][model_var]["model_value"].min()
                 max_model_cmap = self.bias_by_hour[model_name][model_var]["model_value"].max()
-    
+
                 saved_count = 0
                 skipped_count = 0
-    
+
                 for curr_time in tqdm(unique_times, total=len(unique_times), desc=desc):
                     output_file = (
                         output_path
                         / f"2d_errors_{model_name}_{model_var}_"
                         f"{curr_time.strftime('%Y%m%d%H')}.png"
                     )
-    
+
                     if output_file.exists() and not overwrite:
                         skipped_count += 1
                         continue
-    
+
                     fig, _ = self.plot_single_frame(
                         curr_time=curr_time,
                         model_name=model_name,
@@ -551,28 +552,22 @@ class SpotterProcess:
                         cmap_limits=(min_cmap, max_cmap),
                         model_cmap_limits=(min_model_cmap, max_model_cmap),
                     )
-    
+
                     fig.savefig(output_file)
                     plt.close(fig)
                     fig.clf()
                     gc.collect()
-    
+
                     saved_count += 1
-    
+
                 print(
                     f"Saved {saved_count} new images to {self.output_path} "
                     f"for {model_name.upper()} variable {model_var}. "
                     f"Skipped {skipped_count} existing images."
                 )
-    
+
     def plot_single_frame(self, curr_time, model_name, model_var, cmap_limits, model_cmap_limits):
         curr_time = pd.Timestamp(curr_time).tz_convert("UTC")
-
-        # analysis_hour = int(
-        #     (
-        #         curr_time - pd.Timestamp(self.start_date, tz="UTC")
-        #     ).total_seconds() / 3600
-        # )
 
         display_name = self.model_display_names.get(model_name, model_name.upper())
 
@@ -698,3 +693,105 @@ class SpotterProcess:
                 model_ds.to_netcdf(output_file)
 
                 print(f"Saved {model_name.upper()} data to {output_file}")
+
+
+    def create_plotly_fig(df):
+        fig = go.Figure()
+
+        fig.add_trace(
+            go.Scatter(
+                x=df["analysis_hour"],
+                y=df["model_value"],
+                mode="lines",
+                name="Model value",
+                yaxis="y1",
+            )
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=df["analysis_hour"],
+                y=df["data_value"],
+                mode="lines",
+                name="Data value",
+                yaxis="y1",
+            )
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=df["analysis_hour"],
+                y=df["bias"],
+                mode="lines",
+                name="Bias",
+                yaxis="y2",
+            )
+        )
+
+        fig.update_layout(
+            title="Model Value, Data Value, and Bias by Analysis Hour",
+            xaxis=dict(title="Analysis hour"),
+            yaxis=dict(title="Model / Data value"),
+            yaxis2=dict(
+                title="Bias",
+                overlaying="y",
+                side="right",
+                showgrid=False,
+            ),
+            template="plotly_white",
+            hovermode="x unified",
+        )
+        return fig
+
+    def plot_scatter_comparison(x_col, y_col, df, label):
+        data = df[[x_col, y_col]].dropna()
+
+        x = data[x_col].to_numpy()
+        y = data[y_col].to_numpy()
+
+        # Metrics
+        rmse = np.sqrt(np.mean((y - x) ** 2))
+        mae = np.mean(np.abs(y - x))
+
+        # Relative MAE, using observations as reference
+        rmae = mae / np.mean(np.abs(x))
+
+        # Linear trend line: y = m*x + b
+        m, b = np.polyfit(x, y, 1)
+        x_line = np.linspace(x.min(), x.max(), 100)
+        y_line = m * x_line + b
+
+        # Plot
+        ax = data.plot.scatter(
+            x=x_col,
+            y=y_col,
+            figsize=(7, 6),
+            alpha=0.6,
+        )
+
+        ax.plot(x_line, y_line, label=f"Trend: y = {m:.2f}x + {b:.2f}")
+
+        # Optional 1:1 line
+        ax.plot(x_line, x_line, linestyle="--", label="1:1 line")
+
+        ax.set_xlabel(f"Spotter - {label}")
+        ax.set_ylabel(f"ERA5 - {label}")
+        ax.set_title(f"Spotter vs ERA5 - {label}")
+
+        text = (
+            f"RMSE = {rmse:.3f}\n"
+            f"MAE = {mae:.3f}\n"
+            f"RMAE = {rmae:.3f}"
+        )
+
+        ax.text(
+            0.05,
+            0.95,
+            text,
+            transform=ax.transAxes,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round", alpha=0.2),
+        )
+
+        ax.legend()
+        plt.show()

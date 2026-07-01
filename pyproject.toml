@@ -28,6 +28,7 @@ dependencies = [
   "scipy",
   "aiohttp",
   "tqdm",
+  "plotly>=6.8.0"
 ]
 
 dynamic = ["version"]
